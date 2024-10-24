@@ -40,6 +40,43 @@ def authenticate_google_calendar():
     service = build('calendar', 'v3', credentials=creds)
     return service
 
+# Add event to Google Calendar
+def add_event(service, summary, start_time, end_time):
+    try:
+        event = {
+            'summary': summary,
+            'start': {'dateTime': start_time, 'timeZone': 'America/Mexico_City'},
+            'end': {'dateTime': end_time, 'timeZone': 'America/Mexico_City'}
+        }
+
+        created_event = service.events().insert(calendarId='primary', body=event).execute()
+
+        print(f"Event '{summary}' created with ID: {created_event.get('id')}")
+        return f"Event '{summary}' created."
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return "Failed to create the event."
+
+# Utility function to parse time in '5 PM' or '5:30 PM' format into a 24-hour clock
+def parse_time(time_str):
+    # Normalize the time string by ensuring correct spaces and uppercasing
+    time_str = time_str.strip().upper().replace(".", "")  # Remove any periods
+    if "AM" in time_str or "PM" in time_str:
+        time_str = time_str.replace("AM", " AM").replace("PM", " PM")  # Ensure proper spacing
+    else:
+        raise ValueError(f"Time format '{time_str}' is incorrect. It must include AM or PM.")
+    
+    try:
+        # Handle cases where the time includes minutes like '2:30 PM'
+        if ':' in time_str:
+            time_obj = datetime.strptime(time_str, "%I:%M %p")
+        else:
+            # Handle simple cases like '2 PM'
+            time_obj = datetime.strptime(time_str, "%I %p")
+        return time_obj.hour, time_obj.minute
+    except ValueError:
+        raise ValueError(f"Time format '{time_str}' is incorrect.")
+
 # Function to list upcoming events (for update/delete reference)
 def list_upcoming_events(service):
     now = datetime.now(timezone.utc).isoformat()
@@ -47,116 +84,28 @@ def list_upcoming_events(service):
     events = events_result.get('items', [])
     return events
 
-# Add event to Google Calendar
-def add_event(service, summary, start_time, end_time):
-    print(f"Event '{summary}' scheduled from {start_time} to {end_time}.")
-    return f"Event '{summary}' created."
-
-# Utility function to parse time in '5 PM' or '5:30 PM' format into a 24-hour clock
-def parse_time(time_str):
-    # Normalize the time string by removing spaces and making it uppercase
-    time_str = time_str.strip().upper().replace(".", "").replace(" ", "")
-    
-    # Ensure there is an "AM" or "PM" in the string, otherwise raise an error
-    if "AM" not in time_str and "PM" not in time_str:
-        raise ValueError(f"Time format '{time_str}' is incorrect. It must include AM or PM.")
-    
-    try:
-        # Handle cases where the time includes minutes like '2:30 PM'
-        if ':' in time_str:
-            time_obj = datetime.strptime(time_str, "%I:%M%p")
-        else:
-            # Handle simple cases like '2 PM'
-            time_obj = datetime.strptime(time_str, "%I%p")
-        return time_obj.hour, time_obj.minute
-    except ValueError:
-        raise ValueError(f"Time format '{time_str}' is incorrect.")
-
 # Function to handle creating events with flexible input
-def create_event_conversation(service, command):
-    print(f"Debug: Command received: {command}")
-
-    # Extract event title and time using regular expressions
-    event_title = None
-    time_pattern = r'(\d{1,2}(?::\d{2})? ?[APap][Mm]?)'  # Adjusted time pattern for '5PM', '5:30PM', '2p'
-    date_time_pattern = r'tomorrow|today'
-
-    if re.search(time_pattern, command) and re.search(date_time_pattern, command):
-        print(f"Debug: Time and date found in the command.")
-
-        times = re.findall(time_pattern, command)  # Find all times
-        event_title_match = re.search(r'(?:titled|named) (\w+)', command)  # Look for event title
-
-        if event_title_match:
-            event_title = event_title_match.group(1)  # Extract the title
-        else:
-            event_title = "Untitled event"  # Default to untitled
-
-        # Normalize and parse time
-        times = [time.strip().upper().replace(".", "").replace(" ", "") for time in times]
-        
-        # Convert times into datetime objects
-        if "tomorrow" in command:
-            start_time = datetime.now() + timedelta(days=1)
-        else:
-            start_time = datetime.now()
-
-        # Get the parsed hour and minute from the time string
-        start_hour, start_minute = parse_time(times[0])
-        start_time = start_time.replace(hour=start_hour, minute=start_minute)
-
-        end_time = start_time + timedelta(hours=1)  # Default duration 1 hour
-
-        if len(times) > 1:  # If end time is provided
-            end_hour, end_minute = parse_time(times[1])
-            end_time = start_time.replace(hour=end_hour, minute=end_minute)
-
-        # Now add event
-        response = add_event(service, event_title or "Untitled event", start_time.isoformat(), end_time.isoformat())
-        speak_text(f"Event {event_title or 'Untitled event'} scheduled for tomorrow at {times[0]} to {times[1]}")
-        return response
-
-    # If time/date is missing, prompt for more information
+def confirm_event_creation(event_title, start_time, end_time): 
+    # Confirm event details before creation
+    start_time_str = start_time.strftime("%I:%M %p")
+    end_time_str = end_time.strftime("%I:%M %p")
+    
+    speak_text(f"You're scheduling an event titled {event_title} from {start_time_str} to {end_time_str}. Should I proceed?")
+    confirmation = recognize_speech().lower()
+    
+    if "yes" in confirmation or "proceed" in confirmation:
+        return True
     else:
-        print("Debug: No date or time detected in command.")
-        speak_text("Sure, what's the name of the event, at what time, and how long?")
-        name_response = recognize_speech() or "Untitled event"
-        time_response = recognize_speech() or ""
+        speak_text("Event creation canceled.")
+        return False
 
-        # If no title, set it as Untitled
-        if "no title" in name_response.lower():
-            event_title = "Untitled event"
-        else:
-            event_title = name_response
-
-        time_match = re.search(time_pattern, time_response)
-        if time_match:
-            start_hour, start_minute = parse_time(time_match.group())
-            start_time = datetime.now().replace(hour=start_hour, minute=start_minute)
-            duration = 1  # Default to 1 hour
-
-            if "for an hour" in time_response:
-                duration = 1
-            elif "for two hours" in time_response:
-                duration = 2
-
-            end_time = start_time + timedelta(hours=duration)
-
-            # Add event
-            response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
-            speak_text(f"{event_title} scheduled for {time_match.group()} for {duration} hour(s)")
-            return response
-
-    return "Sorry, I couldn't process your event creation."  # Default return if something goes wrong
-
-# Function to handle creating events with flexible input
 def create_event_conversation(service, command):
     print(f"Debug: Command received: {command}")
-
+    
     # Extract event title and time using regular expressions
     event_title = None
     time_pattern = r'(\d{1,2}(?::\d{2})? ?[APap][Mm]?)'  # Adjusted time pattern for '5PM', '5:30PM', '2p'
-    date_time_pattern = r'tomorrow|today'
+    date_time_pattern = r'(tomorrow|today)'
 
     # Step 1: Handle direct command "create an event for me at X"
     if re.search(time_pattern, command) and re.search(date_time_pattern, command):
@@ -170,40 +119,64 @@ def create_event_conversation(service, command):
         else:
             event_title = "Untitled event"  # Default to untitled
 
+        # Normalize and parse time
+        times = [time.strip().upper().replace(".", "").replace("P", " PM").replace("A", " AM") for time in times]
+        
         # Convert times into datetime objects
         if "tomorrow" in command:
             start_time = datetime.now() + timedelta(days=1)
         else:
             start_time = datetime.now()
 
-        # Use parse_time to correctly interpret the time strings
-        start_time = start_time.replace(hour=parse_time(times[0]), minute=0)
-        end_time = start_time + timedelta(hours=1)  # Default duration 1 hour
+        try:
+            # Get the parsed hour and minute from the time string
+            start_hour, start_minute = parse_time(times[0])
+            start_time = start_time.replace(hour=start_hour, minute=start_minute)
 
-        if len(times) > 1:  # If end time is provided
-            end_time = start_time.replace(hour=parse_time(times[1]))
+            # Set default end time to 1 hour later
+            end_time = start_time + timedelta(hours=1)
 
-        # Now add event
-        response = add_event(service, event_title or "Untitled event", start_time.isoformat(), end_time.isoformat())
-        speak_text(f"Event {event_title or 'Untitled event'} scheduled for tomorrow at {times[0]} to {times[1]}")
-        return response
+            # If second time (end time) is given, adjust the end time
+            if len(times) > 1:
+                end_hour, end_minute = parse_time(times[1])
+                end_time = start_time.replace(hour=end_hour, minute=end_minute)
 
-    # Step 2: If user doesn't provide enough info, ask follow-up questions
+            # Confirm the event with the user
+            if confirm_event_creation(event_title, start_time, end_time):
+                response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
+
+                # Modify the speak_text call based on whether a second time was provided
+                if len(times) > 1:
+                    speak_text(f"Event {event_title or 'Untitled event'} scheduled from {times[0]} to {times[1]}")
+                else:
+                    speak_text(f"Event {event_title or 'Untitled event'} scheduled from {times[0]} to {end_time.strftime('%I:%M %p')}")
+
+                return response
+            else:
+                return "Event creation canceled."
+        except ValueError as e:
+            print(f"Error parsing time: {e}")
+            speak_text(f"Sorry, I couldn't process the time '{times[0]}'. Please try again.")
+            return "Error with event creation."
+
+# Step 2: Ask follow-up questions if no date or time is detected
     else:
         print("Debug: No date or time detected in command.")
-        speak_text("Sure, what's the name of the event, at what time, and how long?")
-        name_response = recognize_speech() or "Untitled event"  # Handle None case with default "Untitled event"
-        time_response = recognize_speech() or ""  # Handle None case
+    speak_text("Sure, what's the name of the event, at what time, and how long?")
+    name_response = recognize_speech() or "Untitled event"
+    time_response = recognize_speech() or ""
 
-        # If no title, set it as Untitled
-        if "no title" in name_response.lower():
-            event_title = "Untitled event"
-        else:
-            event_title = name_response
+    # If no title, set it as Untitled
+    if "no title" in name_response.lower():
+        event_title = "Untitled event"
+    else:
+        event_title = name_response
 
-        time_match = re.search(time_pattern, time_response)
-        if time_match:
-            start_time = datetime.now().replace(hour=parse_time(time_match.group()), minute=0)
+    time_match = re.search(time_pattern, time_response)
+    if time_match:
+        try:
+            start_hour, start_minute = parse_time(time_match.group())
+            start_time = datetime.now().replace(hour=start_hour, minute=start_minute)
             duration = 1  # Default to 1 hour
 
             if "for an hour" in time_response:
@@ -213,12 +186,20 @@ def create_event_conversation(service, command):
 
             end_time = start_time + timedelta(hours=duration)
 
-            # Add event
-            response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
-            speak_text(f"{event_title} scheduled for {time_match.group()} for {duration} hour(s)")
-            return response
+            # Confirm the event with the user
+            if confirm_event_creation(event_title, start_time, end_time):
+                response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
+                speak_text(f"Event {event_title or 'Untitled event'} scheduled from {start_time.strftime('%I:%M %p')} to {end_time.strftime('%I:%M %p')}")
+                return response
+            else:
+                return "Event creation canceled."
+        except ValueError as e:
+            print(f"Error parsing time: {e}")
+            speak_text(f"Sorry, I couldn't process the time '{time_match.group()}'. Please try again.")
+            return "Error with event creation."
 
-    return "Sorry, I couldn't process your event creation."  # Default return if something goes wrong
+# Default return if something goes wrong
+    return "Sorry, I couldn't process your event creation."  # Ensuring we return something
 
 # Update an existing event
 def update_event(service, event_id, updated_summary=None, updated_start_time=None, updated_end_time=None):
