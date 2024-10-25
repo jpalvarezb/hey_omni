@@ -1,7 +1,7 @@
 from calendar_module import authenticate_google_calendar
-from intent_handler import handle_command
+from intent_handler import process_command 
 from speech_module import start_speech_interaction, speak_text, initialize_porcupine, cleanup_resources
-from user_interaction_module import greet_user, recognize_speech
+from user_interaction_module import greet_user, recognize_speech_with_retry
 
 # Main loop to interact with the user
 def main():
@@ -19,18 +19,20 @@ def main():
             # Continue listening for commands after greeting
             while True:
                 print("Listening for a command...")
-                command = recognize_speech()  # Vosk Speech-to-Text
+                command = recognize_speech_with_retry()  # Vosk Speech-to-Text
                 if command:
                     print(f"Command recognized: {command}")
+
+                    # Process command using the intent handler
+                    response = process_command(command, service)
+                    print(f"Response: {response}")
+                    speak_text(response)
+
                     if "exit" in command.lower():
                         speak_text(f"Goodbye, {name}!")
                         # Cleanup resources explicitly before exit
                         cleanup_resources(porcupine)
                         return  # Exit the main loop
-                    else:
-                        response = handle_command(command.lower(), service, speak_text, recognize_speech)
-                        print(f"Response: {response}")
-                        speak_text(response)
                 else:
                     print("No command recognized, waiting for another command...")
 

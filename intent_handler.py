@@ -1,215 +1,214 @@
 import re
+import dateparser
+import logging
+from word2number import w2n
+from adapt.engine import IntentDeterminationEngine
+from adapt.intent import IntentBuilder
+from datetime import datetime, timedelta
 import time
 from calendar_module import add_event, list_upcoming_events, update_event, delete_event
 from speech_module import speak_text, recognize_speech
-from datetime import datetime, timedelta, timezone
-from weather_module import get_weather
+from weather_module import get_weather, get_forecast
 
-# Utility function to parse time in '5 PM' or '5:30 PM' format into a 24-hour clock
-def parse_time(time_str):
-    # Normalize the time string by ensuring correct spaces and uppercasing
-    time_str = time_str.strip().upper().replace(".", "")  # Remove periods
+# Initialize the Adapt engine
+engine = IntentDeterminationEngine()
 
-    # Check if AM or PM exists, if not raise an error
-    if "AM" not in time_str and "PM" not in time_str:
-        raise ValueError(f"Time format '{time_str}' is incorrect. It must include AM or PM.")
-    
-    try:
-        # Handle cases where the time includes minutes like '2:30 PM'
-        if ':' in time_str:
-            time_obj = datetime.strptime(time_str, "%I:%M %p")
-        else:
-            # Handle simple cases like '2 PM'
-            time_obj = datetime.strptime(time_str, "%I %p")
-        return time_obj.hour, time_obj.minute
-    except ValueError:
-        raise ValueError(f"Time format '{time_str}' is incorrect.")
+# Register entities for intents
+# Timer-related entities
+engine.register_entity("set", "SetKeyword")
+engine.register_entity("start", "SetKeyword")
+engine.register_entity("timer", "TimerKeyword")
+engine.register_entity("minutes", "TimeUnitKeyword")
+engine.register_entity("seconds", "TimeUnitKeyword")
+engine.register_entity("hours", "TimeUnitKeyword")
 
-# Function to handle creating events with flexible input
-def confirm_event_creation(event_title, start_time, end_time): 
-    start_time_str = start_time.strftime("%I:%M %p")
-    end_time_str = end_time.strftime("%I:%M %p")
-    speak_text(f"You're scheduling an event titled {event_title} from {start_time_str} to {end_time_str}. Should I proceed?")
-    confirmation = recognize_speech().lower()
-    return "yes" in confirmation
+# Weather-related entities
+engine.register_entity("weather", "WeatherKeyword")
+engine.register_entity("forecast", "WeatherKeyword")
+engine.register_entity("climate", "WeatherKeyword")
+engine.register_entity("what's", "GetKeyword")
+engine.register_entity("in", "Location")
 
-def create_event_conversation(service, command):
-    print(f"Debug: Command received: {command}")
-    time_pattern = r'(\d{1,2}(?::\d{2})? ?[APap][Mm]?)'  # Time format like 5PM or 5:30PM
-    date_time_pattern = r'(tomorrow|today)'  # Date pattern to capture 'tomorrow' or 'today'
+# Calendar event-related entities
+engine.register_entity("create", "CreateEventKeyword")
+engine.register_entity("event", "EventKeyword")
+engine.register_entity("update", "UpdateEventKeyword")
+engine.register_entity("delete", "DeleteEventKeyword")
+engine.register_entity("schedule", "CreateEventKeyword")
 
-    if re.search(time_pattern, command) and re.search(date_time_pattern, command):
-        times = re.findall(time_pattern, command)
-        event_title_match = re.search(r'(?:titled|named) (\w+)', command)
-        event_title = event_title_match.group(1) if event_title_match else "Untitled event"
-        start_time = datetime.now() + timedelta(days=1) if "tomorrow" in command else datetime.now()
+# Timer Intent
+set_timer_intent = IntentBuilder("SetTimerIntent") \
+    .require("SetKeyword") \
+    .require("TimerKeyword") \
+    .optionally("TimeUnitKeyword") \
+    .build()
 
-        try:
-            # Debugging: Print the extracted time strings before parsing
-            print(f"Debug: Time string(s) extracted: {times}")
+# Weather Intent
+get_weather_intent = IntentBuilder("GetWeatherIntent") \
+    .require("WeatherKeyword") \
+    .optionally("Location") \
+    .build()
 
-            # Normalize and parse the first time
-            normalized_time = times[0].strip().upper().replace(".", "").replace("P", " PM").replace("A", " AM")
-            print(f"Debug: Normalized time for parsing: '{normalized_time}'")
-            start_hour, start_minute = parse_time(normalized_time)
-            start_time = start_time.replace(hour=start_hour, minute=start_minute)
+# Calendar Intent
+create_event_intent = IntentBuilder("CreateEventIntent") \
+    .require("CreateEventKeyword") \
+    .require("EventKeyword") \
+    .build()
 
-            # Set default end time to 1 hour later
-            end_time = start_time + timedelta(hours=1)
+update_event_intent = IntentBuilder("UpdateEventIntent") \
+    .require("UpdateEventKeyword") \
+    .require("EventKeyword") \
+    .optionally("Time") \
+    .build()
 
-            # If second time (end time) is given, adjust the end time
-            if len(times) > 1:
-                normalized_end_time = times[1].strip().upper().replace(".", "").replace("P", " PM").replace("A", " AM")
-                print(f"Debug: Normalized end time for parsing: '{normalized_end_time}'")
-                end_hour, end_minute = parse_time(normalized_end_time)
-                end_time = start_time.replace(hour=end_hour, minute=end_minute)
+delete_event_intent = IntentBuilder("DeleteEventIntent") \
+    .require("DeleteEventKeyword") \
+    .require("EventKeyword") \
+    .build()
 
-            # Confirm the event with the user
-            if confirm_event_creation(event_title, start_time, end_time):
-                response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
+# Register intents with the engine
+engine.register_intent_parser(set_timer_intent)
+engine.register_intent_parser(get_weather_intent)
+engine.register_intent_parser(create_event_intent)
+engine.register_intent_parser(update_event_intent)
+engine.register_intent_parser(delete_event_intent)
 
-                # Modify the speak_text call based on whether a second time was provided
-                if len(times) > 1:
-                    speak_text(f"Event {event_title or 'Untitled event'} scheduled from {times[0]} to {times[1]}")
-                else:
-                    speak_text(f"Event {event_title or 'Untitled event'} scheduled from {times[0]} to {end_time.strftime('%I:%M %p')}")
-
-                return response
-            else:
-                return "Event creation canceled."
-        except ValueError as e:
-            print(f"Error parsing time: {e}")
-            speak_text(f"Sorry, I couldn't process the time '{times[0]}'. Please try again.")
-            return "Error with event creation."
-
-    # Step 2: Ask follow-up questions if no date or time is detected
+# Utility function to parse duration (e.g., "ten seconds" to 10 seconds)
+def parse_duration(duration_str):
+    words = duration_str.split()
+    if len(words) == 1:
+        value = w2n.word_to_num(words[0])
+        unit = "seconds"  # Default to seconds if no unit is provided
     else:
-        print("Debug: No date or time detected in command.")
-        speak_text("Sure, what's the name of the event, at what time, and how long?")
-        name_response = recognize_speech() or "Untitled event"
-        time_response = recognize_speech() or ""
+        value = w2n.word_to_num(words[0])
+        unit = words[1]
 
-        # If no title, set it as Untitled
-        if "no title" in name_response.lower():
-            event_title = "Untitled event"
-        else:
-            event_title = name_response
+    units = {"seconds": 1, "minutes": 60, "hours": 3600}
+    return int(value) * units.get(unit, 1)
 
-        time_match = re.search(time_pattern, time_response)
-        if time_match:
-            try:
-                normalized_time = time_match.group().strip().upper().replace(".", "").replace("P", " PM").replace("A", " AM")
-                print(f"Debug: Normalized time for parsing: '{normalized_time}'")
-                start_hour, start_minute = parse_time(normalized_time)
-                start_time = datetime.now().replace(hour=start_hour, minute=start_minute)
-                duration = 1  # Default to 1 hour
+# Timer Function
+def handle_set_timer(intent):
+    duration = intent.get('TimeUnitKeyword')
+    
+    if not duration:
+        speak_text("For how long would you like to set the timer?")
+        duration = recognize_speech()  # Ask for additional input if not provided in the command
+    
+    if duration:
+        parsed_duration = parse_duration(duration)
+        speak_text(f"Setting a timer for {duration}.")
+        time.sleep(parsed_duration)
+        speak_text("Time's up!")
+        return f"Timer set for {duration}."
+    else:
+        return "Timer not set."
 
-                if "for an hour" in time_response:
-                    duration = 1
-                elif "for two hours" in time_response:
-                    duration = 2
+# Weather Function
+def handle_get_weather(intent):
+    # Combine location phrases after 'in'
+    raw_location = intent.get("Location")
+    location_match = re.search(r"in\s+(.+)", raw_location) if raw_location else None
+    location = location_match.group(1).strip() if location_match else raw_location
 
-                end_time = start_time + timedelta(hours=duration)
+    if not location:
+        logging.info("User did not provide a specific city. Prompting for city name.")
+        speak_text("I couldn't determine your current location. Please provide a city name.")
+        location = recognize_speech()
+        logging.info(f"User provided location: {location}")
 
-                # Confirm the event with the user
-                if confirm_event_creation(event_title, start_time, end_time):
-                    response = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
-                    speak_text(f"Event {event_title or 'Untitled event'} scheduled from {start_time.strftime('%I:%M %p')} to {end_time.strftime('%I:%M %p')}")
-                    return response
-                else:
-                    return "Event creation canceled."
-            except ValueError as e:
-                print(f"Error parsing time: {e}")
-                speak_text(f"Sorry, I couldn't process the time '{time_match.group()}'. Please try again.")
-                return "Error with event creation."
+    # Check for forecast keywords
+    if "forecast" in intent.get("WeatherKeyword", ""):
+        speak_text("Would you like a daily or hourly forecast?")
+        forecast_type = recognize_speech().lower()
+        period = "daily" if "daily" in forecast_type else "hourly"
+        speak_text("How many days or hours would you like the forecast for?")
+        forecast_count = int(recognize_speech())
+        weather_info = get_forecast(city=location, period=period, forecast_count=forecast_count)
+    else:
+        weather_info = get_weather(city=location)
+    
+    speak_text(weather_info)
+    return weather_info
+    return weather_info
+    
 
-    return "Sorry, I couldn't process your event creation."  # Default return if something goes wrong
+# Create Event Function (using `datetime` and `timedelta`)
+def handle_create_event(intent, service):
+    speak_text("Please provide a title for the event.")
+    event_title = recognize_speech()
 
-# Function to handle commands
-def handle_command(command, service, speak_text, recognize_speech):
-    if "weather in" in command:
-        city = command.split("in")[-1].strip()
-        response = get_weather(city=city, recognize_speech=recognize_speech, speak_text=speak_text)
+    speak_text("At what time should this event start?")
+    start_time_str = recognize_speech()
+    start_time = dateparser.parse(start_time_str)
 
-    elif "weather" in command:
-        # Pass both speak_text and recognize_speech into get_weather for dynamic city input
-        response = get_weather(city=None, recognize_speech=recognize_speech, speak_text=speak_text)
+    speak_text("How long will this event last? Provide the duration in hours or minutes.")
+    duration_str = recognize_speech()
+    duration = parse_duration(duration_str)
+
+    end_time = start_time + timedelta(seconds=duration)
+
+    result = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
+    speak_text(result)
+    return result
+
+# Update Event Function (using `datetime`)
+def handle_update_event(intent, service):
+    speak_text("Please provide the event name you would like to update.")
+    event_name = recognize_speech()
+
+    events = list_upcoming_events(service)
+    event_id = next((event['id'] for event in events if event['summary'].lower() == event_name.lower()), None)
+
+    if event_id:
+        speak_text("What would you like to update the event to?")
+        updated_summary = recognize_speech()
+
+        speak_text("When would you like to start the event?")
+        updated_start_time_str = recognize_speech()
+        updated_start_time = dateparser.parse(updated_start_time_str)
+
+        result = update_event(service, event_id, updated_summary=updated_summary, updated_start_time=updated_start_time.isoformat())
+        speak_text(result)
+        return result
+    else:
+        response = f"Event '{event_name}' not found."
+        speak_text(response)
         return response
-    
-    elif "create event" in command or "schedule event" in command:
-        return create_event_conversation(service, command)
 
-    elif "update event" in command:
-        summary = command.split("event")[-1].strip().split("to")[0].strip()
-        events = list_upcoming_events(service)
-        event_id = next((event['id'] for event in events if event['summary'].lower() == summary.lower()), None)
-        if event_id:
-            start_time = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
-            response = update_event(service, event_id, updated_summary=summary, updated_start_time=start_time)
-        else:
-            response = f"Event '{summary}' not found."
+# Delete Event Function
+def handle_delete_event(intent, service):
+    speak_text("Please provide the event name you want to delete.")
+    event_name = recognize_speech()
 
-    elif "delete event" in command:
-        summary = command.split("event")[-1].strip()
-        events = list_upcoming_events(service)
-        event_id = next((event['id'] for event in events if event['summary'].lower() == summary.lower()), None)
-        if event_id:
-            response = delete_event(service, event_id)
-        else:
-            response = f"Event '{summary}' not found."
-    
-    elif "what time" in command or "what is the time" in command or "what's the time" in command or "current time" in command:
-        # Get current time
-        current_time = datetime.now().strftime("%I:%M %p")  # 12-hour format with AM/PM
-        response = f"The current time is {current_time}."
+    events = list_upcoming_events(service)
+    event_id = next((event['id'] for event in events if event['summary'].lower() == event_name.lower()), None)
 
-    elif "what's the date" in command or "current date" in command or "what day is it" in command:
-        # Get current date with the day of the week
-        current_date = datetime.now().strftime("%A, %B %d, %Y")  # e.g., Monday, October 23, 2024
-        response = f"Today's date is {current_date}."
-
-    elif "set a timer for" in command:
-        try:
-            # Extract the number and the time unit (seconds, minutes, or hours)
-            parts = command.split("for")[1].strip().split()
-            time_value = int(parts[0])
-            time_unit = parts[1].lower() if len(parts) > 1 else 'seconds'
-
-            # Convert time to seconds based on the unit
-            if "second" in time_unit:
-                timer_seconds = time_value
-                response = f"Setting a timer for {time_value} seconds."
-            elif "minute" in time_unit:
-                timer_seconds = time_value * 60
-                response = f"Setting a timer for {time_value} minutes."
-            elif "hour" in time_unit:
-                timer_seconds = time_value * 3600
-                response = f"Setting a timer for {time_value} hours."
-            else:
-                response = "I couldn't understand the time unit. Please use seconds, minutes, or hours."
-                return response
-
-            # Ask for user confirmation
-            speak_text(f"I understood {response}. Should I proceed?")
-            confirmation = recognize_speech().lower()
-
-            if "yes" in confirmation or "proceed" in confirmation:
-                speak_text("Okay, starting the timer.")
-                print(response)
-
-                # Now start the timer
-                time.sleep(timer_seconds)  # Correct use of time.sleep from the time module
-                speak_text("Time's up!")  # Say "Time's up!" after the timer finishes
-                response = "Timer completed."
-            else:
-                speak_text("Timer was not set.")
-                response = "Timer was canceled."
-
-        except Exception as e:
-            print(f"Error setting timer: {e}")
-            response = "I couldn't set the timer. Please try again."
-
+    if event_id:
+        result = delete_event(service, event_id)
+        speak_text(result)
+        return result
     else:
-        response = f"Sorry, did you say: {command}?"
+        response = f"Event '{event_name}' not found."
+        speak_text(response)
+        return response
+
+# Main function to process commands using Adapt
+def process_command(command, service):
+    # Determine intents based on input command
+    for intent in engine.determine_intent(command):
+        intent_type = intent.get("intent_type")
+        
+        if intent_type == "SetTimerIntent":
+            return handle_set_timer(intent)
+        elif intent_type == "GetWeatherIntent":
+            return handle_get_weather(intent)
+        elif intent_type == "CreateEventIntent":
+            return handle_create_event(intent, service)
+        elif intent_type == "UpdateEventIntent":
+            return handle_update_event(intent, service)
+        elif intent_type == "DeleteEventIntent":
+            return handle_delete_event(intent, service)
     
-    return response
+    # If no intent matches
+    speak_text("Sorry, I couldn't understand the command.")
+    return "I'm sorry, I couldn't understand the command."
