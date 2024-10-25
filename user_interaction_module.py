@@ -1,4 +1,4 @@
-from speech_module import speak_text, recognize_speech
+from speech_module import speak_text, recognize_speech_with_retry
 
 # Function to extract name from user's response
 def extract_name(name_response):
@@ -13,18 +13,15 @@ def extract_name(name_response):
     return words[name_index]
 
 # Function to greet the user with a retry limit
-def greet_user(max_retries=3):
-    attempts = 0
-    while attempts < max_retries:
-        speak_text("Hello, I'm Omni! What's your name?")
-        name_response = recognize_speech()
-        if name_response:
-            name = extract_name(name_response)
-            speak_text(f"Hello {name}, how can I assist you today?")
-            return name
-        else:
-            speak_text("Sorry, I didn't catch your name. Can you please repeat?")
-            attempts += 1
+def greet_user():
+    speak_text("Hey, I'm Omni! What's your name?")
+    name = recognize_speech_with_retry()  # Use the retry mechanism if needed
+    if name:
+        speak_text(f"Nice to meet you, {name}!")
+        return name
+    else:
+        speak_text("Sorry, I didn't catch your name. Can you please repeat?")
+        return greet_user()  # Retry if it fails
 
     speak_text("Sorry, I still couldn't catch your name. Let's proceed without it.")
     return None  # Return None if the name couldn't be captured after retries

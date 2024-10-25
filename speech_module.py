@@ -1,98 +1,127 @@
 import pyttsx3
 import vosk
 import json
-import wave
+import numpy as np
 import pyaudio
-import pvporcupine
-import struct
+import pvporcupine  # For wake word detection
 
 # Initialize text-to-speech engine
 engine = pyttsx3.init()
 
 # Function to convert text to speech
 def speak_text(text):
-    engine.say(text)
-    engine.runAndWait()
-
-import pvporcupine
-
-def initialize_porcupine():
-    access_key = "UCQk8w5THzU7yu7Y96/HeJO1sXwcrLB0afg6O/onLeMXZSXEfWmZzQ=="  # Replace with your actual Picovoice access key
-    porcupine = pvporcupine.create(
-        access_key=access_key,
-        keyword_paths=['./Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn']  # Adjust path to the trained custom wake word model
-    )
-    return porcupine
-
-# Function to listen for wake word using Porcupine
-def listen_for_wakeword(porcupine):
-    pa = pyaudio.PyAudio()
-    audio_stream = pa.open(
-        rate=porcupine.sample_rate,
-        channels=1,
-        format=pyaudio.paInt16,
-        input=True,
-        frames_per_buffer=porcupine.frame_length
-    )
-
-    print("Listening for wake word...")
-    
-    while True:
-        pcm = audio_stream.read(porcupine.frame_length, exception_on_overflow=False)
-        pcm = struct.unpack_from("h" * porcupine.frame_length, pcm)
-
-        keyword_index = porcupine.process(pcm)
-        if keyword_index >= 0:
-            print("Wake word detected!")
-            speak_text("Yes, how can I help?")
-            return True  # Trigger voice command recognition after wake word
+    try:
+        engine.say(text)
+        engine.runAndWait()
+    except Exception as e:
+        print(f"Error in speak_text: {e}")
 
 # Function to recognize speech using Vosk
 def recognize_speech():
-    model_path = "./vosk-model-small-en-us-0.15"  # Adjust if needed
-    model = vosk.Model(model_path)
-    
-    # Initialize microphone recording
-    recognizer = pyaudio.PyAudio()
-    stream = recognizer.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=8192)
-    stream.start_stream()
-    
-    print("Listening...")
+    stream = None
+    try:
+        model_path = "./vosk-model-small-en-us-0.15"
+        model = vosk.Model(model_path)
 
-    # Capture audio and process with Vosk
-    rec = vosk.KaldiRecognizer(model, 16000)
+        recognizer = pyaudio.PyAudio()
+        stream = recognizer.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=8192)
+        stream.start_stream()
 
-    while True:
-        data = stream.read(4096)
-        if len(data) == 0:
-            break
-        if rec.AcceptWaveform(data):
-            result = json.loads(rec.Result())
-            if "text" in result:
-                print(f"You said: {result['text']}")
-                return result['text']
+        rec = vosk.KaldiRecognizer(model, 16000)
 
-    # Handle cases where speech wasn't recognized
-    print("Sorry, I did not understand that.")
-    speak_text("Sorry, I did not understand that. Please repeat.")
-    return ""
+        print("Listening for your speech...")  # Notify the user the program is waiting
+        detected_text = ""
 
-# Optional retry mechanism if speech isn't recognized the first time
-def recognize_speech_with_retry(attempts=3):
-    for _ in range(attempts):
-        result = recognize_speech()
-        if result:  # If a valid result is returned, exit the loop
-            return result
-        speak_text("Let me try that again.")
-    speak_text("Sorry, I couldn't understand you after several attempts.")
-    return None  # Return None after exceeding the retry attempts
+        while True:
+            data = stream.read(4096, exception_on_overflow=False)
+            if rec.AcceptWaveform(data):
+                result = json.loads(rec.Result())
+                detected_text = result.get("text", "").strip()
+                if detected_text:  # Ensure it's not blank
+                    print(f"You said: {detected_text}")
+                    break  # Exit the loop when valid speech is detected
 
-# Main function to combine wake word detection and speech recognition
-def start_speech_interaction():
-    porcupine = initialize_porcupine()  # Initialize Porcupine
-    while True:
-        if listen_for_wakeword(porcupine):  # Listen for wake word first
-            command = recognize_speech_with_retry()  # Recognize speech after wake word is detected
-            if command:
-                print(f"Command: {command}")
-                # Process the command here
+            partial_result = rec.PartialResult()  # Handle partial results separately
+            partial_result_data = json.loads(partial_result)
+            if partial_result_data.get("partial"):
+                print(f"Partial result: {partial_result_data['partial']}")
+
+    except Exception as e:
+        print(f"Error in recognize_speech: {e}")
+
+    finally:
+        # Ensure that the stream is properly closed
+        if stream is not None:
+            stream.stop_stream()
+            stream.close()
+        recognizer.terminate()
+
+    if detected_text:
+        return detected_text
+    else:
+        print("I didn't understand that, trying again...")
+        speak_text("I didn't understand that, please repeat.")
+        return ""
+
+# Function to initialize Porcupine for wake word detection
+def initialize_porcupine():
+    try:
+        access_key = "UCQk8w5THzU7yu7Y96/HeJO1sXwcrLB0afg6O/onLeMXZSXEfWmZzQ=="  # Your access key
+        porcupine = pvporcupine.create(
+            access_key=access_key,
+            keyword_paths=['./Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn']  # Replace with the correct path
+        )
+        return porcupine
+    except Exception as e:
+        print(f"Error in initialize_porcupine: {e}")
+        return None
+
+# Function to listen for the wake word using Porcupine
+def listen_for_wakeword(porcupine):
+    stream = None
+    try:
+        recognizer = pyaudio.PyAudio()
+        # Initialize PyAudio
+        stream = recognizer.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=porcupine.frame_length)
+        stream.start_stream()
+
+        while True:
+            # Read from the audio stream
+            pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
+            pcm = np.frombuffer(pcm, dtype=np.int16)
+
+            # Check if the wake word is detected
+            keyword_index = porcupine.process(pcm)
+            if keyword_index >= 0:
+                print("Wake word detected!")
+                return True
+
+    except KeyboardInterrupt:
+        print("Stopped by user")
+
+    except Exception as e:
+        print(f"Error in listen_for_wakeword: {e}")
+        return False
+
+    finally:
+        if stream is not None:
+            stream.stop_stream()
+            stream.close()
+        recognizer.terminate()
+
+    return False
+
+# Function to cleanup resources when exiting
+def cleanup_resources(porcupine):
+    if porcupine is not None:
+        print("Cleaning up resources...")
+        porcupine.delete()
+        print("Resources cleaned up.")
+
+# Function to start the speech interaction, waiting for wake word and processing speech commands
+def start_speech_interaction(porcupine):
+    print("Listening for wake word...")
+    if listen_for_wakeword(porcupine):
+        print("Wake word detected!")
+        return True
+    return False
