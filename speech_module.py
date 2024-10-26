@@ -79,15 +79,22 @@ def recognize_speech():
 def recognize_speech_with_cancel_retry(attempts=3):
     """Listens for speech input, retries on failure, and allows user to cancel."""
     for attempt in range(attempts):
+        log_info(f"Starting attempt {attempt + 1}/{attempts}")
         speech = recognize_speech().lower()
+        
         if "cancel" in speech or "stop" in speech:
             log_info("User issued a cancel command.")
             return "cancel"
-        elif speech:  # If speech was recognized
+        
+        elif speech:  # Valid speech input detected
+            log_info(f"Valid input received: {speech}")
             return speech
+        
         else:
             log_info(f"Attempt {attempt + 1}/{attempts} failed. Retrying...")
             speak_text("I didn't understand that. Could you repeat?")
+
+    log_info("All attempts failed; returning None")
     return None  # Return None if all attempts fail
 
 # Function to initialize Porcupine for wake word detection
