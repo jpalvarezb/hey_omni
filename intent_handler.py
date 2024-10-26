@@ -7,7 +7,7 @@ from adapt.intent import IntentBuilder
 from datetime import datetime, timedelta
 import time
 from calendar_module import add_event, list_upcoming_events, update_event, delete_event
-from speech_module import speak_text, recognize_speech
+from speech_module import speak_text, recognize_speech, recognize_speech_with_cancel_retry
 from weather_module import get_weather, get_forecast
 from helpers import parse_duration, log_info
 
@@ -28,6 +28,8 @@ engine.register_entity("date", "DateKeyword")
 engine.register_entity("time", "TimeKeyword")
 engine.register_entity("today", "DateKeyword")
 engine.register_entity("now", "TimeKeyword")
+engine.register_entity("pm", "TimeKeyword")
+engine.register_entity("am", "TimeKeyword")
 engine.register_entity("tomorrow", "DateAdjustmentKeyword")
 engine.register_entity("yesterday", "DateAdjustmentKeyword")
 
@@ -62,6 +64,8 @@ engine.register_entity("event", "EventKeyword")
 engine.register_entity("update", "UpdateEventKeyword")
 engine.register_entity("delete", "DeleteEventKeyword")
 engine.register_entity("schedule", "CreateEventKeyword")
+engine.register_entity("meeting", "EventName")
+engine.register_entity("appointment", "EventName")
 
 # Timer Intent
 # Timer Intent with number and time unit entities
@@ -82,6 +86,9 @@ get_weather_intent = IntentBuilder("GetWeatherIntent") \
 create_event_intent = IntentBuilder("CreateEventIntent") \
     .require("CreateEventKeyword") \
     .require("EventKeyword") \
+    .optionally("DateKeyword") \
+    .optionally("DateAdjustmentKeyword") \
+    .optionally("TimeKeyword") \
     .build()
 
 update_event_intent = IntentBuilder("UpdateEventIntent") \
@@ -147,19 +154,63 @@ def handle_get_weather(intent):
     return weather_info
 
 # Create Event Function (using `datetime` and `timedelta`)
-def handle_create_event(intent, service, speak_text):
-    speak_text("Please provide a title for the event.")
-    event_title = recognize_speech()
+def handle_create_event(command, service, speak_text):
+    # Ensure command is not None
+    if not command:
+        speak_text("I didn't get the command details. Could you please specify the event details?")
+        command = recognize_speech_with_cancel_retry()
+        if command == "cancel":
+            speak_text("Event creation canceled.")
+            return "Event creation canceled."
 
-    speak_text("At what time should this event start?")
-    start_time_str = recognize_speech()
-    start_time = dateparser.parse(start_time_str)
+    # Extract event title, date, time, and duration from command using regex patterns
+    title_match = re.search(r"named\s+(.+?)\s+(at|for|tomorrow|today)", command)
+    time_match = re.search(r"\bat\s+([\w\s:]+(?:am|pm)?)", command)
+    duration_match = re.search(r"for\s+(\d+|one|two|three)\s+(hour|minute|hours|minutes)", command)
+    date_match = re.search(r"(tomorrow|today)", command)
 
-    speak_text("How long will this event last? Provide the duration in hours or minutes.")
-    duration_str = recognize_speech()
-    duration = parse_duration(duration_str, speak_text)  # Pass speak_text here as well if parse_duration requires it
+    # Extract matched details or set to None if not found
+    event_title = title_match.group(1).strip() if title_match else None
+    start_time_str = time_match.group(1).strip() if time_match else None
+    duration_str = f"{duration_match.group(1)} {duration_match.group(2)}" if duration_match else None
+    event_date = dateparser.parse(date_match.group(1)).date() if date_match else None
 
-    if start_time and duration:
+    # Combine event date and start time if both are provided
+    if event_date and start_time_str:
+        start_time = dateparser.parse(f"{event_date} {start_time_str}")
+    else:
+        start_time = dateparser.parse(start_time_str) if start_time_str else None
+
+    # Parse duration using helper function
+    duration = parse_duration(duration_str, speak_text) if duration_str else None
+
+    # Prompt user for missing information
+    if not event_title:
+        speak_text("Please provide a title for the event.")
+        response = recognize_speech_with_cancel_retry()
+        if response == "cancel":
+            speak_text("Event creation canceled.")
+            return "Event creation canceled."
+        event_title = response
+
+    if not start_time:
+        speak_text("At what time should this event start?")
+        response = recognize_speech_with_cancel_retry()
+        if response == "cancel":
+            speak_text("Event creation canceled.")
+            return "Event creation canceled."
+        start_time = dateparser.parse(response)
+
+    if not duration:
+        speak_text("How long will this event last? Provide the duration in hours or minutes.")
+        response = recognize_speech_with_cancel_retry()
+        if response == "cancel":
+            speak_text("Event creation canceled.")
+            return "Event creation canceled."
+        duration = parse_duration(response, speak_text)
+
+    # Create the event if all details are valid
+    if event_title and start_time and duration:
         end_time = start_time + timedelta(seconds=duration)
         result = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
         speak_text(result)
@@ -228,8 +279,8 @@ def process_command(command, service, speak_text):
             return handle_set_timer(duration_str, speak_text)
         elif intent_type == "GetWeatherIntent":
             return handle_get_weather(intent, speak_text)
-        if intent_type == "CreateEventIntent":
-            return handle_create_event(intent, service, speak_text)
+        elif intent_type == "CreateEventIntent":
+            return handle_create_event(command, service, speak_text)
         elif intent_type == "UpdateEventIntent":
             return handle_update_event(intent, service, speak_text)
         elif intent_type == "DeleteEventIntent":

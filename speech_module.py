@@ -6,6 +6,7 @@ import pyaudio
 import time
 import pvporcupine  # For wake word detection
 import logging
+from helpers import log_info  # Make sure helpers has log_info
 
 # Initialize text-to-speech engine
 engine = pyttsx3.init()
@@ -74,18 +75,20 @@ def recognize_speech():
 
     return detected_text if detected_text else ""
 
-# Function to retry speech recognition
-def recognize_speech_with_retry(retries=3):
-    for attempt in range(retries):
-        detected_text = recognize_speech()
-        if detected_text:
-            return detected_text
+# Function to retry speech recognition and/or cancel command
+def recognize_speech_with_cancel_retry(attempts=3):
+    """Listens for speech input, retries on failure, and allows user to cancel."""
+    for attempt in range(attempts):
+        speech = recognize_speech().lower()
+        if "cancel" in speech or "stop" in speech:
+            log_info("User issued a cancel command.")
+            return "cancel"
+        elif speech:  # If speech was recognized
+            return speech
         else:
+            log_info(f"Attempt {attempt + 1}/{attempts} failed. Retrying...")
             speak_text("I didn't understand that. Could you repeat?")
-            logging.info(f"Retrying speech recognition attempt {attempt + 1}/{retries}")
-    
-    speak_text("I'm sorry, I couldn't recognize your speech after multiple attempts.")
-    return ""
+    return None  # Return None if all attempts fail
 
 # Function to initialize Porcupine for wake word detection
 def initialize_porcupine():

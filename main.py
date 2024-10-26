@@ -1,7 +1,7 @@
 from calendar_module import authenticate_google_calendar
 from intent_handler import process_command 
 from speech_module import start_speech_interaction, speak_text, initialize_porcupine, cleanup_resources
-from user_interaction_module import greet_user, recognize_speech_with_retry
+from user_interaction_module import greet_user, recognize_speech_with_cancel_retry
 
 # Main loop to interact with the user
 def main():
@@ -19,7 +19,7 @@ def main():
             # Continue listening for commands after greeting
             while True:
                 print("Listening for a command...")
-                command = recognize_speech_with_retry()  # Vosk Speech-to-Text
+                command = recognize_speech_with_cancel_retry()  # Vosk Speech-to-Text
                 if command:
                     print(f"Command recognized: {command}")
 
