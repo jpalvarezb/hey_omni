@@ -13,9 +13,15 @@ from helpers import parse_duration, log_info
 
 # Initialize the Adapt engine
 engine = IntentDeterminationEngine()
-engine.register_entity("Number")
 
 # Register entities for intents
+
+# Numerical entities for time calculations
+engine.register_entity("one", "Number")
+engine.register_entity("two", "Number")
+engine.register_entity("three", "Number")
+engine.register_entity("five", "Number")
+engine.register_entity("ten", "Number")
 
 # General Time and Date Entities
 engine.register_entity("date", "DateKeyword")
@@ -141,7 +147,7 @@ def handle_get_weather(intent):
     return weather_info
 
 # Create Event Function (using `datetime` and `timedelta`)
-def handle_create_event(intent, service):
+def handle_create_event(intent, service, speak_text):
     speak_text("Please provide a title for the event.")
     event_title = recognize_speech()
 
@@ -151,13 +157,16 @@ def handle_create_event(intent, service):
 
     speak_text("How long will this event last? Provide the duration in hours or minutes.")
     duration_str = recognize_speech()
-    duration = parse_duration(duration_str)
+    duration = parse_duration(duration_str, speak_text)  # Pass speak_text here as well if parse_duration requires it
 
-    end_time = start_time + timedelta(seconds=duration)
-
-    result = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
-    speak_text(result)
-    return result
+    if start_time and duration:
+        end_time = start_time + timedelta(seconds=duration)
+        result = add_event(service, event_title, start_time.isoformat(), end_time.isoformat())
+        speak_text(result)
+        return result
+    else:
+        speak_text("I couldn't create the event due to missing or incorrect details.")
+        return "Event creation failed."
 
 # Update Event Function (using `datetime`)
 def handle_update_event(intent, service):
@@ -219,7 +228,7 @@ def process_command(command, service, speak_text):
             return handle_set_timer(duration_str, speak_text)
         elif intent_type == "GetWeatherIntent":
             return handle_get_weather(intent, speak_text)
-        elif intent_type == "CreateEventIntent":
+        if intent_type == "CreateEventIntent":
             return handle_create_event(intent, service, speak_text)
         elif intent_type == "UpdateEventIntent":
             return handle_update_event(intent, service, speak_text)
