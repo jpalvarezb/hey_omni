@@ -9,18 +9,39 @@ import time
 from calendar_module import add_event, list_upcoming_events, update_event, delete_event
 from speech_module import speak_text, recognize_speech
 from weather_module import get_weather, get_forecast
+from helpers import parse_duration, log_info
 
 # Initialize the Adapt engine
 engine = IntentDeterminationEngine()
+engine.register_entity("Number")
 
 # Register entities for intents
-# Timer-related entities
-engine.register_entity("set", "SetKeyword")
-engine.register_entity("start", "SetKeyword")
-engine.register_entity("timer", "TimerKeyword")
-engine.register_entity("minutes", "TimeUnitKeyword")
-engine.register_entity("seconds", "TimeUnitKeyword")
-engine.register_entity("hours", "TimeUnitKeyword")
+
+# General Time and Date Entities
+engine.register_entity("date", "DateKeyword")
+engine.register_entity("time", "TimeKeyword")
+engine.register_entity("today", "DateKeyword")
+engine.register_entity("now", "TimeKeyword")
+engine.register_entity("tomorrow", "DateAdjustmentKeyword")
+engine.register_entity("yesterday", "DateAdjustmentKeyword")
+
+# Adjustment Keywords (e.g., 'in' an hour, 'last' week)
+engine.register_entity("in", "AdjustmentKeyword")
+engine.register_entity("last", "AdjustmentKeyword")
+engine.register_entity("next", "AdjustmentKeyword")
+engine.register_entity("ago", "AdjustmentKeyword")
+
+# Duration Units (Hours, Days, etc.)
+engine.register_entity("second", "DurationKeyword")
+engine.register_entity("seconds", "DurationKeyword")
+engine.register_entity("minute", "DurationKeyword")
+engine.register_entity("minutes", "DurationKeyword")
+engine.register_entity("hour", "DurationKeyword")
+engine.register_entity("hours", "DurationKeyword")
+engine.register_entity("day", "DurationKeyword")
+engine.register_entity("days", "DurationKeyword")
+engine.register_entity("week", "DurationKeyword")
+engine.register_entity("weeks", "DurationKeyword")
 
 # Weather-related entities
 engine.register_entity("weather", "WeatherKeyword")
@@ -37,9 +58,11 @@ engine.register_entity("delete", "DeleteEventKeyword")
 engine.register_entity("schedule", "CreateEventKeyword")
 
 # Timer Intent
+# Timer Intent with number and time unit entities
 set_timer_intent = IntentBuilder("SetTimerIntent") \
     .require("SetKeyword") \
     .require("TimerKeyword") \
+    .optionally("Number") \
     .optionally("TimeUnitKeyword") \
     .build()
 
@@ -73,35 +96,22 @@ engine.register_intent_parser(create_event_intent)
 engine.register_intent_parser(update_event_intent)
 engine.register_intent_parser(delete_event_intent)
 
-# Utility function to parse duration (e.g., "ten seconds" to 10 seconds)
-def parse_duration(duration_str):
-    words = duration_str.split()
-    if len(words) == 1:
-        value = w2n.word_to_num(words[0])
-        unit = "seconds"  # Default to seconds if no unit is provided
-    else:
-        value = w2n.word_to_num(words[0])
-        unit = words[1]
-
-    units = {"seconds": 1, "minutes": 60, "hours": 3600}
-    return int(value) * units.get(unit, 1)
-
-# Timer Function
-def handle_set_timer(intent):
-    duration = intent.get('TimeUnitKeyword')
-    
-    if not duration:
+# Set Timer
+def handle_set_timer(duration_str, speak_text):
+    if not duration_str:
         speak_text("For how long would you like to set the timer?")
-        duration = recognize_speech()  # Ask for additional input if not provided in the command
+        duration_str = recognize_speech()  # Get user input if not present in intent
+
+    parsed_duration = parse_duration(duration_str, speak_text)  # Parsing and error logging handled in helper
     
-    if duration:
-        parsed_duration = parse_duration(duration)
-        speak_text(f"Setting a timer for {duration}.")
+    if parsed_duration is not None:
+        speak_text(f"Setting a timer for {duration_str}.")
         time.sleep(parsed_duration)
         speak_text("Time's up!")
-        return f"Timer set for {duration}."
+        return f"Timer set for {duration_str}."
     else:
-        return "Timer not set."
+        speak_text("Timer duration was not understood.")
+        return "Timer duration was not understood."
 
 # Weather Function
 def handle_get_weather(intent):
@@ -129,8 +139,6 @@ def handle_get_weather(intent):
     
     speak_text(weather_info)
     return weather_info
-    return weather_info
-    
 
 # Create Event Function (using `datetime` and `timedelta`)
 def handle_create_event(intent, service):
@@ -192,22 +200,31 @@ def handle_delete_event(intent, service):
         speak_text(response)
         return response
 
-# Main function to process commands using Adapt
-def process_command(command, service):
+def process_command(command, service, speak_text):
+    # Directly handle the exit command first
+    if "exit" in command.lower():
+        speak_text("Goodbye!")
+        return "EXIT"  # Return a specific marker for exit
+
     # Determine intents based on input command
     for intent in engine.determine_intent(command):
         intent_type = intent.get("intent_type")
         
         if intent_type == "SetTimerIntent":
-            return handle_set_timer(intent)
+            # Extract number and unit for duration
+            number = intent.get("Number", "")
+            time_unit = intent.get("TimeUnitKeyword", "")
+            duration_str = f"{number} {time_unit}".strip()
+            log_info(f"Extracted duration string: '{duration_str}'")
+            return handle_set_timer(duration_str, speak_text)
         elif intent_type == "GetWeatherIntent":
-            return handle_get_weather(intent)
+            return handle_get_weather(intent, speak_text)
         elif intent_type == "CreateEventIntent":
-            return handle_create_event(intent, service)
+            return handle_create_event(intent, service, speak_text)
         elif intent_type == "UpdateEventIntent":
-            return handle_update_event(intent, service)
+            return handle_update_event(intent, service, speak_text)
         elif intent_type == "DeleteEventIntent":
-            return handle_delete_event(intent, service)
+            return handle_delete_event(intent, service, speak_text)
     
     # If no intent matches
     speak_text("Sorry, I couldn't understand the command.")

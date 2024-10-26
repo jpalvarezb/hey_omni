@@ -23,16 +23,14 @@ def main():
                 if command:
                     print(f"Command recognized: {command}")
 
-                    # Process command using the intent handler
-                    response = process_command(command, service)
-                    print(f"Response: {response}")
-                    speak_text(response)
-
-                    if "exit" in command.lower():
-                        speak_text(f"Goodbye, {name}!")
-                        # Cleanup resources explicitly before exit
+                    # Process command using intent handler
+                    response = process_command(command, service, speak_text)
+                    if response == "EXIT":  # Detect the exit marker
                         cleanup_resources(porcupine)
                         return  # Exit the main loop
+
+                    print(f"Response: {response}")
+                    speak_text(response)
                 else:
                     print("No command recognized, waiting for another command...")
 
