@@ -148,13 +148,6 @@ def listen_for_wakeword(porcupine):
 
     return False
 
-# Function to cleanup resources when exiting
-def cleanup_resources(porcupine):
-    if porcupine is not None:
-        logging.info("Cleaning up resources...")
-        porcupine.delete()
-        logging.info("Resources cleaned up.")
-
 # Function to start the speech interaction, waiting for wake word and processing speech commands
 def start_speech_interaction(porcupine):
     logging.info("Waiting for wake word to start interaction...")

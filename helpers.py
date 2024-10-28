@@ -11,6 +11,26 @@ def log_info(message):
 def log_error(message):
     logging.error(message)
 
+# Cleanup Resources with status tracking
+def cleanup_resources(porcupine, recognizer=None, stream=None, porcupine_cleaned=False):
+    """Cleans up resources, avoiding double-freeing errors."""
+    if porcupine and not porcupine_cleaned:
+        log_info("Cleaning up Porcupine resources...")
+        porcupine.delete()
+        porcupine_cleaned = True  # Mark as cleaned up
+
+    if stream:
+        log_info("Stopping and closing audio stream...")
+        stream.stop_stream()
+        stream.close()
+
+    if recognizer:
+        log_info("Terminating PyAudio instance...")
+        recognizer.terminate()
+
+    log_info("Resources cleaned up.")
+    return porcupine, recognizer, stream, porcupine_cleaned
+
 # Parsing Function
 def parse_duration(duration_str, speak_text):
     try:

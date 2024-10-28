@@ -292,6 +292,12 @@ def process_command(command, service, speak_text):
     """Processes the recognized command and logs parsing details."""
     log_info(f"Processing command: {command}")
 
+    # Directly handle the "exit" command to return the "EXIT" marker
+    if "exit" in command.lower():
+        speak_text("Goodbye!")
+        log_info("Exiting program as per user command.")
+        return "EXIT"  # Return a specific marker to exit the main loop
+
     for intent in engine.determine_intent(command):
         intent_type = intent.get("intent_type")
         log_info(f"Detected intent type: {intent_type}")
