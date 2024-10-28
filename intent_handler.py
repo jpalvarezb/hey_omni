@@ -126,31 +126,31 @@ engine.register_intent_parser(delete_event_intent)
 
 # Weather Function
 def handle_get_weather(intent, recognize_speech, speak_text, location=None, city=None):
-    # Try parsing the initial location from intent or provided arguments
+    # Attempt to parse the initial location from intent or provided arguments
     location = location or city or parse_city(intent.get('utterance', ''))
     log_info(f"Initial parsed location from intent: {location}")
 
-    # Prompt user for location if still not set after initial parsing
+    # If location not found, prompt the user for the city
     while not location:
         speak_text("Could you please specify the town or city? You can use a complete sentence.")
         
-        # Capture raw response and log it before parsing
+        # Capture the user's response and parse for location
         response = recognize_speech().strip()
         log_info(f"User response after prompt: '{response}'")
         
-        # Parse the response as if it were a full weather query
+        # Parse the response as a full weather query to capture location
         location = parse_city(response)
+        
+        # Additional check if 'in' is present, parsing after it
         if not location and ' in ' in response.lower():
-            # Try to extract location after 'in' if present
             location = parse_city(response.lower().split(' in ')[-1])
         
-        # Log the parsing result for diagnostics
         if location:
-            log_info(f"Successfully parsed location from follow-up response: {location}")
+            log_info(f"Successfully parsed location: {location}")
         else:
-            log_error(f"Parsing failed for user response: '{response}'")
+            log_error(f"Parsing failed for response: '{response}'")
             speak_text("I'm sorry, I couldn't understand the city. Please try saying something like 'in Paris' or just 'Paris'.")
-    
+
     log_info(f"Final parsed location: {location}")
 
     # Determine forecast period and count based on time-related keywords
@@ -318,12 +318,7 @@ def process_command(command, service, speak_text):
         
         # Get Weather Intent
         elif intent_type == "GetWeatherIntent":
-            city_name = parse_city(command)  # Extracts city name from command string
-            if not city_name:
-                # Prompt the user for the city name only if it wasn't detected
-                speak_text("Could you please specify the town or city?")
-                city_name = recognize_speech().strip()
-            return handle_get_weather(intent, recognize_speech, speak_text, location=city_name)
+            return handle_get_weather(intent, recognize_speech, speak_text)
         
         # Create Event Intent
         elif intent_type == "CreateEventIntent":
