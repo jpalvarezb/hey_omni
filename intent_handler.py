@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from calendar_module import add_event, list_upcoming_events, update_event, delete_event
 from speech_module import speak_text, recognize_speech, recognize_speech_with_cancel_retry
 from weather_module import get_weather, get_forecast
-from helpers import parse_duration, parse_location_from_command, log_info, log_error
+from helpers import parse_duration, parse_city, log_info, log_error
 
 # Initialize the Adapt engine
 engine = IntentDeterminationEngine()
@@ -83,7 +83,6 @@ set_timer_intent = IntentBuilder("SetTimerIntent") \
 # Weather Intent
 get_weather_intent = IntentBuilder("GetWeatherIntent") \
     .require("WeatherKeyword") \
-    .optionally("LocationKeyword") \
     .optionally("CityKeyword")\
     .optionally("DateAdjustmentKeyword") \
     .optionally("RelativeTimeKeyword") \
@@ -126,52 +125,63 @@ engine.register_intent_parser(update_event_intent)
 engine.register_intent_parser(delete_event_intent)
 
 # Weather Function
-def handle_get_weather(intent, recognize_speech, speak_text):
-    # Step 1: Attempt to get location from CityKeyword, fallback to parsing command text if missing
-    command_text = intent.get("command", "")
-    raw_location = intent.get("CityKeyword", "")
-    location = raw_location.strip() if raw_location else parse_location_from_command(command_text)
+def handle_get_weather(intent, recognize_speech, speak_text, location=None, city=None):
+    # Try parsing the initial location from intent or provided arguments
+    location = location or city or parse_city(intent.get('utterance', ''))
+    log_info(f"Initial parsed location from intent: {location}")
 
-    # Only prompt user for location if it's still empty after parsing
-    if not location:
-        speak_text("Could you please specify the town or city?")
-        location = recognize_speech().strip()
-        log_info(f"User specified location: {location}")
+    # Prompt user for location if still not set after initial parsing
+    while not location:
+        speak_text("Could you please specify the town or city? You can use a complete sentence.")
+        
+        # Capture raw response and log it before parsing
+        response = recognize_speech().strip()
+        log_info(f"User response after prompt: '{response}'")
+        
+        # Parse the response as if it were a full weather query
+        location = parse_city(response)
+        if not location and ' in ' in response.lower():
+            # Try to extract location after 'in' if present
+            location = parse_city(response.lower().split(' in ')[-1])
+        
+        # Log the parsing result for diagnostics
+        if location:
+            log_info(f"Successfully parsed location from follow-up response: {location}")
+        else:
+            log_error(f"Parsing failed for user response: '{response}'")
+            speak_text("I'm sorry, I couldn't understand the city. Please try saying something like 'in Paris' or just 'Paris'.")
+    
+    log_info(f"Final parsed location: {location}")
 
-    # Step 2: Determine forecast period and count based on time-related keywords
-    raw_time_input = f"{intent.get('DateAdjustmentKeyword', '')} {intent.get('TimeKeyword', '')} {intent.get('MeridiemKeyword', '')}".strip()
-    forecast_period = "daily"  # Default to daily
+    # Determine forecast period and count based on time-related keywords
+    forecast_period = "daily"  # Default to daily forecast
     forecast_count = 1
 
+    raw_time_input = f"{intent.get('DateAdjustmentKeyword', '')} {intent.get('TimeKeyword', '')} {intent.get('MeridiemKeyword', '')}".strip()
     if raw_time_input:
         log_info(f"Parsing time input: {raw_time_input}")
         forecast_date = dateparser.parse(raw_time_input)
-
+        
         if forecast_date:
             days_difference = (forecast_date - datetime.now()).days
             forecast_count = min(days_difference + 1, 7) if days_difference > 0 else 1
+            forecast_period = "hourly" if any(kw in raw_time_input for kw in ["am", "pm", "hour"]) else "daily"
+            forecast_count = 24 if forecast_period == "hourly" else forecast_count
 
-        # Hourly forecast condition
-        if any(kw in raw_time_input for kw in ["am", "pm", "hour"]):
-            forecast_period = "hourly"
-            forecast_count = 24  # Default to 24 hours if hourly
-
-    # Step 3: Determine if a forecast or current weather is requested
+    # Check if a forecast or current weather is requested
     if intent.get("WeatherKeyword") == "forecast":
-        speak_text(f"Would you like a {forecast_period} forecast? Please specify the number of days or hours if needed.")
-        
+        speak_text(f"Would you like a {forecast_period} forecast? Specify the number of days or hours if needed.")
         try:
             user_forecast_count = int(recognize_speech().strip())
             forecast_count = min(user_forecast_count, forecast_count)
         except ValueError:
-            log_error("Invalid forecast count received from speech input.")
-            speak_text("I didn't catch a valid number for the forecast period. Showing default forecast.")
+            log_error("Invalid forecast count received.")
+            speak_text("Couldn't understand the forecast period; showing default forecast.")
 
-        weather_info = get_forecast(city=location, period=forecast_period, forecast_count=forecast_count)
+        weather_info = get_forecast(location=location, period=forecast_period, forecast_count=forecast_count)
     else:
-        weather_info = get_weather(city=location)
+        weather_info = get_weather(location=location)
 
-    speak_text(weather_info)
     return weather_info
 
 # Create event function
@@ -306,16 +316,24 @@ def process_command(command, service, speak_text):
             log_info(f"Extracted duration string: '{duration_str}'")
             return set_timer(duration_str, speak_text)
         
-        # Other intents
+        # Get Weather Intent
         elif intent_type == "GetWeatherIntent":
-            return handle_get_weather(intent, recognize_speech, speak_text)
+            city_name = parse_city(command)  # Extracts city name from command string
+            if not city_name:
+                # Prompt the user for the city name only if it wasn't detected
+                speak_text("Could you please specify the town or city?")
+                city_name = recognize_speech().strip()
+            return handle_get_weather(intent, recognize_speech, speak_text, location=city_name)
         
+        # Create Event Intent
         elif intent_type == "CreateEventIntent":
             return handle_create_event(command, service, speak_text)
         
+        # Update Event Intent
         elif intent_type == "UpdateEventIntent":
             return handle_update_event(intent, service)
         
+        # Delete Event Intent
         elif intent_type == "DeleteEventIntent":
             return handle_delete_event(intent, service)
 
@@ -323,4 +341,3 @@ def process_command(command, service, speak_text):
     log_error("Failed to match a command to any intent.")
     speak_text("Sorry, I couldn't understand the command.")
     return "I'm sorry, I couldn't understand the command."  
-    

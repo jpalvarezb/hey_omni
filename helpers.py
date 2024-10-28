@@ -1,4 +1,3 @@
-import re
 import logging
 from datetime import datetime
 from word2number import w2n
@@ -68,17 +67,52 @@ def parse_duration(duration_str, speak_text):
         speak_text("I'm sorry, I couldn't understand the timer duration. Please specify a number and a unit, like '10 seconds' or '5 minutes'.")
         return None
 
-def parse_location_from_command(command_text):
-    """
-    Extracts the location from a command by searching for "in <location>" or "at <location>".
-    """
-    location_match = re.search(r"\b(?:in|at)\s+(.+)", command_text, re.IGNORECASE)
-    if location_match:
-        location = location_match.group(1).strip()
-        log_info(f"Extracted location: {location}")
-        return location
-    else:
-        log_error("No valid location found in command.")
+def parse_city(command):
+    if not command:
+        return None
+
+    exclude_words = [
+        'in', 'at', 'for', 'the', 'weather', 'forecast', 'what', 'is', 'whats', 
+        "what's", 'city', 'town', 'climate', 'like', 'going', 'to', 'be', 'current',
+        'please', 'tell', 'me', 'about', 'check', 'get', 'want', 'know'
+    ]
+
+    try:
+        # Extract text following "in" if it exists
+        if ' in ' in command.lower():
+            location = command.lower().split(' in ')[-1]
+        else:
+            location = command
+
+        # Clean up the location string
+        words = location.strip().lower().split()
+        
+        # Filter out excluded words
+        filtered_words = [word for word in words if word.lower() not in exclude_words]
+        
+        # Handle multi-word cities
+        i = 0
+        cleaned_words = []
+        while i < len(filtered_words):
+            current_word = filtered_words[i].lower()
+            if i < len(filtered_words) - 1 and current_word in ['san', 'new', 'los', 'las']:
+                # Combine multi-word city names
+                cleaned_words.append(f"{filtered_words[i]} {filtered_words[i+1]}")
+                i += 2
+            else:
+                cleaned_words.append(filtered_words[i])
+                i += 1
+
+        # Return None if no valid words remain
+        if not cleaned_words:
+            return None
+            
+        city_name = ' '.join(cleaned_words).title()
+        log_info(f"Parsed city name: {city_name}")
+        return city_name
+
+    except Exception as e:
+        log_error(f"Error parsing city name: {e}")
         return None
 
 # Utility to format datetime to a user-friendly string

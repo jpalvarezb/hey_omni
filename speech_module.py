@@ -1,3 +1,4 @@
+import os
 import pyttsx3
 import vosk
 import time
@@ -10,6 +11,7 @@ from helpers import log_info, log_error
 # Initialize text-to-speech engine
 engine = pyttsx3.init()
 
+#TTS
 def speak_text(text):
     try:
         log_info(f"Speaking: {text}")
@@ -86,13 +88,18 @@ def recognize_speech_with_cancel_retry(attempts=3):
     speak_text("I'm sorry, I couldn't understand you. Let's try something else.")
     return None  # Return None if all attempts fail without valid input
 
+#Wake word
 def initialize_porcupine():
     try:
-        access_key = "UCQk8w5THzU7yu7Y96/HeJO1sXwcrLB0afg6O/onLeMXZSXEfWmZzQ=="
+        access_key = os.getenv("PORCUPINE_API_KEY")  # Fetching API key from environment variable
+        if not access_key:
+            raise ValueError("PORCUPINE_API_KEY is not set in environment variables.")
+        
         porcupine = pvporcupine.create(
             access_key=access_key,
             keyword_paths=['./Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn']
         )
+        
         log_info("Porcupine initialized successfully.")
         return porcupine
     except Exception as e:
