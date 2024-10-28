@@ -1,6 +1,5 @@
 import re
 import dateparser
-import time
 from timer import set_timer
 from adapt.engine import IntentDeterminationEngine
 from adapt.intent import IntentBuilder
@@ -8,7 +7,7 @@ from datetime import datetime, timedelta
 from calendar_module import add_event, list_upcoming_events, update_event, delete_event
 from speech_module import speak_text, recognize_speech, recognize_speech_with_cancel_retry
 from weather_module import get_weather, get_forecast
-from helpers import parse_duration, log_info, log_error
+from helpers import parse_duration, parse_location_from_command, log_info, log_error
 
 # Initialize the Adapt engine
 engine = IntentDeterminationEngine()
@@ -59,6 +58,10 @@ engine.register_entity("in", "LocationKeyword")
 # Misceleanous
 engine.register_entity("set", "SetKeyword")
 engine.register_entity("timer", "TimerKeyword")
+engine.register_entity("Managua", "CityKeyword")
+engine.register_entity("New York", "CityKeyword")
+engine.register_entity("Miami", "CityKeyword")
+
 
 # Calendar Event-Related Entities
 engine.register_entity("create", "EventActionKeyword")
@@ -81,6 +84,7 @@ set_timer_intent = IntentBuilder("SetTimerIntent") \
 get_weather_intent = IntentBuilder("GetWeatherIntent") \
     .require("WeatherKeyword") \
     .optionally("LocationKeyword") \
+    .optionally("CityKeyword")\
     .optionally("DateAdjustmentKeyword") \
     .optionally("RelativeTimeKeyword") \
     .optionally("TimeKeyword") \
@@ -108,6 +112,12 @@ delete_event_intent = IntentBuilder("DeleteEventIntent") \
     .require("EventTypeKeyword") \
     .build()
 
+#Miscellaneous
+city_intent = IntentBuilder("CityIntent") \
+    .require("CityKeyword") \
+    .optionally("Location") \
+    .build()
+
 # Register intents with the engine
 engine.register_intent_parser(set_timer_intent)
 engine.register_intent_parser(get_weather_intent)
@@ -115,63 +125,47 @@ engine.register_intent_parser(create_event_intent)
 engine.register_intent_parser(update_event_intent)
 engine.register_intent_parser(delete_event_intent)
 
-# Set Timer Function
-def handle_set_timer(duration_str, speak_text):
-    if not duration_str:
-        speak_text("For how long would you like to set the timer?")
-        duration_str = recognize_speech()
-
-    parsed_duration = parse_duration(duration_str, speak_text)  
-    if parsed_duration is not None:
-        speak_text(f"Setting a timer for {duration_str}.")
-        time.sleep(parsed_duration)
-        speak_text("Time's up!")
-        return f"Timer set for {duration_str}."
-    else:
-        speak_text("Timer duration was not understood.")
-        return "Timer duration was not understood."
-
 # Weather Function
 def handle_get_weather(intent, recognize_speech, speak_text):
-    # Extract location directly from intent, ignoring "in" or "at" prepositions
-    raw_location = intent.get("LocationKeyword", "")
-    location_match = re.search(r"\b(?:in|at)\s+(.+)", raw_location, re.IGNORECASE)
-    location = location_match.group(1).strip() if location_match else raw_location.strip()
+    # Step 1: Attempt to get location from CityKeyword, fallback to parsing command text if missing
+    command_text = intent.get("command", "")
+    raw_location = intent.get("CityKeyword", "")
+    location = raw_location.strip() if raw_location else parse_location_from_command(command_text)
 
-    # If location is still empty, ask the user
+    # Only prompt user for location if it's still empty after parsing
     if not location:
-        speak_text("Please provide a city name for the weather information.")
+        speak_text("Could you please specify the town or city?")
         location = recognize_speech().strip()
+        log_info(f"User specified location: {location}")
 
-    # Check for time-related keywords and parse accordingly
-    raw_time_input = intent.get("DateAdjustmentKeyword", "") + " " + intent.get("TimeKeyword", "") + " " + intent.get("MeridiemKeyword", "")
-    forecast_period = "daily"
+    # Step 2: Determine forecast period and count based on time-related keywords
+    raw_time_input = f"{intent.get('DateAdjustmentKeyword', '')} {intent.get('TimeKeyword', '')} {intent.get('MeridiemKeyword', '')}".strip()
+    forecast_period = "daily"  # Default to daily
     forecast_count = 1
-    forecast_date = None
 
-    if raw_time_input.strip():
+    if raw_time_input:
         log_info(f"Parsing time input: {raw_time_input}")
         forecast_date = dateparser.parse(raw_time_input)
 
-        # Handle cases like tomorrow, next day, etc.
         if forecast_date:
             days_difference = (forecast_date - datetime.now()).days
             forecast_count = min(days_difference + 1, 7) if days_difference > 0 else 1
 
-        # Handle "AM/PM" or "hour" keywords for hourly forecasts
-        if "am" in raw_time_input or "pm" in raw_time_input or "hour" in raw_time_input:
+        # Hourly forecast condition
+        if any(kw in raw_time_input for kw in ["am", "pm", "hour"]):
             forecast_period = "hourly"
-            forecast_count = 24
+            forecast_count = 24  # Default to 24 hours if hourly
 
-    # Fetch forecast or current weather
-    if "forecast" in intent.get("WeatherKeyword", ""):
+    # Step 3: Determine if a forecast or current weather is requested
+    if intent.get("WeatherKeyword") == "forecast":
         speak_text(f"Would you like a {forecast_period} forecast? Please specify the number of days or hours if needed.")
+        
         try:
-            user_forecast_count = int(recognize_speech())
+            user_forecast_count = int(recognize_speech().strip())
             forecast_count = min(user_forecast_count, forecast_count)
         except ValueError:
             log_error("Invalid forecast count received from speech input.")
-            speak_text("Please specify a valid number for the forecast period.")
+            speak_text("I didn't catch a valid number for the forecast period. Showing default forecast.")
 
         weather_info = get_forecast(city=location, period=forecast_period, forecast_count=forecast_count)
     else:

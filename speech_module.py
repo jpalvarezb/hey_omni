@@ -1,73 +1,61 @@
 import pyttsx3
 import vosk
+import time
 import json
 import numpy as np
 import pyaudio
-import time
-import pvporcupine  # For wake word detection
-import logging
-from helpers import log_info  # Make sure helpers has log_info
+import pvporcupine 
+from helpers import log_info, log_error 
 
 # Initialize text-to-speech engine
 engine = pyttsx3.init()
 
-# Set logging level for debugging (INFO level for general logging, DEBUG for detailed logs)
-logging.basicConfig(level=logging.INFO)
-
-# Function to convert text to speech
 def speak_text(text):
     try:
-        logging.info(f"Speaking: {text}")
+        log_info(f"Speaking: {text}")
         engine.say(text)
         engine.runAndWait()
     except Exception as e:
-        logging.error(f"Error in speak_text: {e}")
+        log_error(f"Error in speak_text: {e}")
 
-# Function to recognize speech using Vosk
 def recognize_speech():
     stream = None
     start_time = time.time()
-    timeout_duration = 10  # Set the timeout duration in seconds
+    timeout_duration = 10
     detected_text = ""
 
     try:
         model_path = "./vosk-model-small-en-us-0.15"
         model = vosk.Model(model_path)
-
         recognizer = pyaudio.PyAudio()
         stream = recognizer.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=8192)
         stream.start_stream()
 
         rec = vosk.KaldiRecognizer(model, 16000)
-
-        logging.info("Listening for your speech...")  # Notify the user that the program is waiting
+        log_info("Listening for your speech...")
 
         while True:
             data = stream.read(4096, exception_on_overflow=False)
             if rec.AcceptWaveform(data):
                 result = json.loads(rec.Result())
                 detected_text = result.get("text", "").strip()
-                if detected_text:  # Ensure it's not blank
-                    logging.info(f"You said: {detected_text}")
-                    break  # Exit the loop when valid speech is detected
+                if detected_text:
+                    log_info(f"You said: {detected_text}")
+                    break
             
-            # Add timeout logic
             if time.time() - start_time > timeout_duration:
-                logging.warning("Speech recognition timed out. Asking user to retry.")
-                speak_text("I didn't hear anything. Please try again.")
+                log_info("Speech recognition timed out. Asking user to retry.")
                 break
 
-            # Handle partial results separately for more immediate feedback
             partial_result = rec.PartialResult()
             partial_result_data = json.loads(partial_result)
             if partial_result_data.get("partial"):
-                logging.debug(f"Partial result: {partial_result_data['partial']}")
+                log_info(f"Partial result: {partial_result_data['partial']}")
 
     except Exception as e:
-        logging.error(f"Error in recognize_speech: {e}")
+        log_error(f"Error in recognize_speech: {e}")
 
     finally:
-        # Ensure that the stream is properly closed
         if stream is not None:
             stream.stop_stream()
             stream.close()
@@ -80,64 +68,58 @@ def recognize_speech_with_cancel_retry(attempts=3):
     """Listens for speech input, retries on failure, and allows user to cancel."""
     for attempt in range(attempts):
         log_info(f"Starting attempt {attempt + 1}/{attempts}")
-        speech = recognize_speech().lower()
-        
+        speech = recognize_speech().lower()  # Capture the speech input
+
         if "cancel" in speech or "stop" in speech:
             log_info("User issued a cancel command.")
-            return "cancel"
-        
-        elif speech:  # Valid speech input detected
+            return "cancel"  # Return "cancel" to indicate command termination
+
+        if speech:  # If valid speech is recognized
             log_info(f"Valid input received: {speech}")
-            return speech
-        
-        else:
-            log_info(f"Attempt {attempt + 1}/{attempts} failed. Retrying...")
-            speak_text("I didn't understand that. Could you repeat?")
+            return speech  # Return the recognized speech
 
-    log_info("All attempts failed; returning None")
-    return None  # Return None if all attempts fail
+        # Prompt the user to retry if speech was not recognized
+        log_info(f"Attempt {attempt + 1}/{attempts} failed. Retrying...")
+        speak_text("I didn't get that. Please repeat.")
 
-# Function to initialize Porcupine for wake word detection
+    log_info("All attempts failed. No valid input received.")
+    speak_text("I'm sorry, I couldn't understand you. Let's try something else.")
+    return None  # Return None if all attempts fail without valid input
+
 def initialize_porcupine():
     try:
-        access_key = "UCQk8w5THzU7yu7Y96/HeJO1sXwcrLB0afg6O/onLeMXZSXEfWmZzQ=="  # Your access key
+        access_key = "UCQk8w5THzU7yu7Y96/HeJO1sXwcrLB0afg6O/onLeMXZSXEfWmZzQ=="
         porcupine = pvporcupine.create(
             access_key=access_key,
-            keyword_paths=['./Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn']  # Replace with the correct path
+            keyword_paths=['./Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn']
         )
-        logging.info("Porcupine initialized successfully.")
+        log_info("Porcupine initialized successfully.")
         return porcupine
     except Exception as e:
-        logging.error(f"Error in initialize_porcupine: {e}")
+        log_error(f"Error in initialize_porcupine: {e}")
         return None
 
-# Function to listen for the wake word using Porcupine
 def listen_for_wakeword(porcupine):
     stream = None
     try:
         recognizer = pyaudio.PyAudio()
-        # Initialize PyAudio
         stream = recognizer.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=porcupine.frame_length)
         stream.start_stream()
 
-        logging.info("Listening for wake word...")
+        log_info("Listening for wake word...")
         while True:
-            # Read from the audio stream
             pcm = stream.read(porcupine.frame_length, exception_on_overflow=False)
             pcm = np.frombuffer(pcm, dtype=np.int16)
-
-            # Check if the wake word is detected
             keyword_index = porcupine.process(pcm)
             if keyword_index >= 0:
-                logging.info("Wake word detected!")
-                speak_text("Wake word detected!")
+                log_info("Wake word detected.")
                 return True
 
     except KeyboardInterrupt:
-        logging.info("Wake word detection stopped by user.")
+        log_info("Wake word detection stopped by user.")
 
     except Exception as e:
-        logging.error(f"Error in listen_for_wakeword: {e}")
+        log_error(f"Error in listen_for_wakeword: {e}")
         return False
 
     finally:
@@ -148,10 +130,10 @@ def listen_for_wakeword(porcupine):
 
     return False
 
-# Function to start the speech interaction, waiting for wake word and processing speech commands
 def start_speech_interaction(porcupine):
-    logging.info("Waiting for wake word to start interaction...")
+    log_info("Waiting for wake word to start interaction...")
     if listen_for_wakeword(porcupine):
-        logging.info("Proceeding with speech interaction after wake word detected.")
+        log_info("Proceeding with speech interaction after wake word detected.")
+        speak_text("Wake word detected!")
         return True
     return False

@@ -1,3 +1,4 @@
+import re
 import logging
 from datetime import datetime
 from word2number import w2n
@@ -31,7 +32,7 @@ def cleanup_resources(porcupine, recognizer=None, stream=None, porcupine_cleaned
     log_info("Resources cleaned up.")
     return porcupine, recognizer, stream, porcupine_cleaned
 
-# Parsing Function
+# Parsing Functions
 def parse_duration(duration_str, speak_text):
     try:
         if not duration_str:
@@ -65,6 +66,19 @@ def parse_duration(duration_str, speak_text):
     except ValueError as e:
         log_error(f"Failed to parse duration '{duration_str}': {e}")
         speak_text("I'm sorry, I couldn't understand the timer duration. Please specify a number and a unit, like '10 seconds' or '5 minutes'.")
+        return None
+
+def parse_location_from_command(command_text):
+    """
+    Extracts the location from a command by searching for "in <location>" or "at <location>".
+    """
+    location_match = re.search(r"\b(?:in|at)\s+(.+)", command_text, re.IGNORECASE)
+    if location_match:
+        location = location_match.group(1).strip()
+        log_info(f"Extracted location: {location}")
+        return location
+    else:
+        log_error("No valid location found in command.")
         return None
 
 # Utility to format datetime to a user-friendly string

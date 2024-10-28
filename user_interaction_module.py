@@ -13,13 +13,12 @@ def extract_name(name_response):
     return words[name_index]
 
 def greet_user():
-    log_info("Initiating greet_user function.")
     speak_text("Hey, I'm Omni! What's your name?")
     name = recognize_speech_with_cancel_retry()  # Use the retry mechanism if needed
     log_info(f"User response captured: {name}")
 
     if name:
-        speak_text(f"Nice to meet you, {name}! How's it going?")
+        speak_text(f"How's it going, {name}?")
         log_info(f"Greeted user: {name}")
         return name
     else:
