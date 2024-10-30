@@ -3,6 +3,7 @@ from intent_handler import process_command
 from speech_module import start_speech_interaction, speak_text, initialize_porcupine
 from user_interaction_module import greet_user, recognize_speech_with_cancel_retry
 from helpers import log_info, log_error, cleanup_resources
+import time
 
 # Main loop to interact with the user
 def main():
@@ -30,16 +31,21 @@ def main():
 
                 if command:
                     log_info(f"Command recognized: {command}")
-                    response = process_command(command, service, speak_text)
+                    response = process_command(command, service)
                     log_info(f"Response from process_command: {response}")
 
                     if response == "EXIT":  # Detect the exit marker
                         log_info("EXIT command received.")
+                        speak_text("Goodbye!")
                         return  # Exit the main loop
 
-                    # Provide feedback to the user if command was recognized but not "EXIT"
-                    log_info(f"Responding to user: {response}")
-                    speak_text(response)
+                    # Handle multiple responses (e.g., for weather forecasts)
+                    if isinstance(response, list):
+                        for r in response:
+                            speak_text(r)
+                            time.sleep(0.5)  # Brief pause between responses
+                    else:
+                        speak_text(response)
                 else:
                     log_info("No command recognized, waiting for another command...")
 

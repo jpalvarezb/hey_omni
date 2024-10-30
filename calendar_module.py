@@ -5,6 +5,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta, timezone
+from helpers import (
+    ensure_timezone_aware,
+    parse_time_with_context,
+    log_error
+)
 
 # SCOPES for Google Calendar API
 SCOPES = ['https://www.googleapis.com/auth/calendar']
@@ -74,24 +79,45 @@ def list_upcoming_events(service):
         print(f"An error occurred while listing events: {e}")
         return "Failed to retrieve events."
 
-# Update an existing event
-def update_event(service, event_id, updated_summary=None, updated_start_time=None, updated_end_time=None):
-    """Updates an existing event in the user's calendar."""
-    try:
-        event = service.events().get(calendarId='primary', eventId=event_id).execute()
-        if updated_summary:
-            event['summary'] = updated_summary
-        if updated_start_time:
-            event['start']['dateTime'] = updated_start_time
-        if updated_end_time:
-            event['end']['dateTime'] = updated_end_time
 
-        updated_event = service.events().update(calendarId='primary', eventId=event['id'], body=event).execute()
-        print(f"Event '{updated_event.get('summary')}' updated.")
-        return f"Event '{updated_event.get('summary')}' updated."
+def update_event(service, event_id, updated_summary=None, updated_start_time=None, updated_end_time=None, updated_description=None):
+    try:
+        # Fetch existing event
+        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        
+        # Create update body starting with existing event data
+        body = event.copy()
+        
+        if updated_summary:
+            body['summary'] = updated_summary
+        
+        if updated_start_time:
+            body['start'] = {
+                'dateTime': updated_start_time,
+                'timeZone': event['start'].get('timeZone', 'UTC')
+            }
+            
+        if updated_end_time:
+            body['end'] = {
+                'dateTime': updated_end_time,
+                'timeZone': event['end'].get('timeZone', 'UTC')
+            }
+            
+        if updated_description:
+            body['description'] = updated_description
+
+        # Only update if there are changes
+        updated_event = service.events().update(
+            calendarId='primary',
+            eventId=event_id,
+            body=body
+        ).execute()
+        
+        return True, "Event updated successfully"
+        
     except Exception as e:
-        print(f"An error occurred while updating the event: {e}")
-        return "Failed to update the event."
+        log_error(f"Error updating event: {str(e)}")
+        return False, f"Failed to update event: {str(e)}"
 
 # Delete an event from Google Calendar with user-friendly response
 def delete_event(service, event_id):
@@ -114,10 +140,17 @@ def find_event_by_title(service, title):
     """Finds an event by its title."""
     try:
         now = datetime.now(timezone.utc).isoformat()
-        events_result = service.events().list(calendarId='primary', timeMin=now, maxResults=10, singleEvents=True, orderBy='startTime').execute()
+        events_result = service.events().list(
+            calendarId='primary',
+            timeMin=now,
+            maxResults=10,
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
         events = events_result.get('items', [])
         
         for event in events:
+            # Case-insensitive comparison
             if event.get('summary', '').lower() == title.lower():
                 return event
         
@@ -148,6 +181,28 @@ def main():
 
     # Example: Deleting an event
     delete_event(service, event_id)
+
+def get_event_details(service, event_id):
+    """Retrieves detailed information about an event."""
+    try:
+        event = service.events().get(calendarId='primary', eventId=event_id).execute()
+        start_time = datetime.fromisoformat(
+            event['start'].get('dateTime', event['start'].get('date')).replace('Z', '+00:00')
+        )
+        end_time = datetime.fromisoformat(
+            event['end'].get('dateTime', event['end'].get('date')).replace('Z', '+00:00')
+        )
+        
+        return {
+            'summary': event.get('summary', 'Unnamed Event'),
+            'start_time': start_time,
+            'end_time': end_time,
+            'description': event.get('description', ''),
+            'duration': end_time - start_time
+        }
+    except Exception as e:
+        print(f"Error retrieving event details: {e}")
+        return None
 
 if __name__ == '__main__':
     main()
