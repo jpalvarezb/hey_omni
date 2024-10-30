@@ -563,7 +563,8 @@ def process_command(command, service):
             return handle_create_event(command, service)
         elif "Timer" in intent_type:
             contextual_recognizer.set_context('timer')
-            return set_timer(intent.get("NumberKeyword") + " " + intent.get("DurationUnitKeyword"))
+            # Pass the speak_text function as an argument
+            return set_timer(intent.get("NumberKeyword") + " " + intent.get("DurationUnitKeyword"), speak_text)
         elif "DeleteEventIntent" in intent_type:
             contextual_recognizer.set_context('event')
             return handle_delete_event(intent, service)
