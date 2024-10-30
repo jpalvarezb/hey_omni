@@ -19,22 +19,47 @@ def authenticate_google_calendar():
     """Authenticates the user with Google Calendar and returns a service object."""
     creds = None
     token_path = 'token.pickle'
+    credentials_files = ['credentials.json', 'client_secret_256315787799-3k2nu706aibeo8r2lgted6pdc2ls8pug.apps.googleusercontent.com.json']
     
-    # Check if token.pickle exists to load credentials
+    # Check if token exists
     if os.path.exists(token_path):
-        with open(token_path, 'rb') as token:
-            creds = pickle.load(token)
+        try:
+            with open(token_path, 'rb') as token:
+                creds = pickle.load(token)
+        except Exception as e:
+            log_error(f"Error loading token: {str(e)}")
+            creds = None
     
     # If no valid credentials, authenticate using OAuth flow
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        # Save the credentials for future use
-        with open(token_path, 'wb') as token:
-            pickle.dump(creds, token)
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                log_error(f"Token refresh failed: {str(e)}")
+                creds = None
+        
+        if not creds:
+            # Try both possible credential file names
+            for cred_file in credentials_files:
+                if os.path.exists(cred_file):
+                    try:
+                        flow = InstalledAppFlow.from_client_secrets_file(cred_file, SCOPES)
+                        creds = flow.run_local_server(port=0)
+                        break
+                    except Exception as e:
+                        log_error(f"Error with {cred_file}: {str(e)}")
+                        continue
+            
+            if not creds:
+                raise Exception("No valid credentials file found. Please ensure either credentials.json or client_secret.json exists.")
+        
+        # Save the credentials
+        try:
+            with open(token_path, 'wb') as token:
+                pickle.dump(creds, token)
+        except Exception as e:
+            log_error(f"Error saving token: {str(e)}")
     
     service = build('calendar', 'v3', credentials=creds)
     return service
