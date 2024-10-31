@@ -1,0 +1,25 @@
+models:
+  vosk:
+    path: vosk-model-small-en-us-0.15
+    url: https://example.com/vosk-model.zip
+  wake_word:
+    path: Hey-Omni_en_mac_v3_0_0/Hey-Omni_en_mac_v3_0_0.ppn
+    url: https://example.com/wake-word-model.zip
+platform_config:
+  Darwin:
+    audio_buffer_size: 2048
+    max_retries: 3
+    retry_delay: 0.5
+    startup_delay: 0.5
+  Linux:
+    audio_buffer_size: 2048
+    max_retries: 3
+    retry_delay: 0.5
+    startup_delay: 0.5
+  Windows:
+    audio_buffer_size: 4096
+    max_retries: 3
+    retry_delay: 1.0
+    startup_delay: 1.0
+required_env_vars:
+  PORCUPINE_API_KEY: API key for wake word detection
