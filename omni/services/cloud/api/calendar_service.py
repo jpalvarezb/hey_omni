@@ -9,17 +9,19 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from ....core.exceptions import APIError
+from ....core.config import Config
+import pickle
 
 class CalendarAPI:
     """Google Calendar API client with async support."""
     
-    SCOPES = ['https://www.googleapis.com/auth/calendar']
     BASE_URL = 'https://www.googleapis.com/calendar/v3'
     
-    def __init__(self):
+    def __init__(self, config: Config):
         self._logger = logging.getLogger(self.__class__.__name__)
         self._session: Optional[aiohttp.ClientSession] = None
         self._credentials = None
+        self._config = config
         
     async def initialize(self) -> None:
         """Initialize calendar API client."""
@@ -37,26 +39,29 @@ class CalendarAPI:
         """Get or refresh Google Calendar credentials."""
         try:
             creds = None
-            token_path = os.path.join(os.path.dirname(__file__), 'token.json')
-            creds_path = os.path.join(os.path.dirname(__file__), 'credentials.json')
+            calendar_config = self._config.calendar
             
-            if os.path.exists(token_path):
-                creds = Credentials.from_authorized_user_file(token_path, self.SCOPES)
-                
+            # Try to load from pickle file
+            if os.path.exists(calendar_config.token_path):
+                with open(calendar_config.token_path, 'rb') as token:
+                    creds = pickle.load(token)
+                    
             if not creds or not creds.valid:
                 if creds and creds.expired and creds.refresh_token:
                     creds.refresh(Request())
                 else:
-                    if not os.path.exists(creds_path):
-                        raise APIError("credentials.json not found")
+                    if not os.path.exists(calendar_config.credentials_path):
+                        raise APIError("Calendar credentials not found")
                         
                     flow = InstalledAppFlow.from_client_secrets_file(
-                        creds_path, self.SCOPES)
+                        calendar_config.credentials_path,
+                        calendar_config.scopes
+                    )
                     creds = flow.run_local_server(port=0)
                     
-                # Save the credentials
-                with open(token_path, 'w') as token:
-                    token.write(creds.to_json())
+                # Save the credentials as pickle
+                with open(calendar_config.token_path, 'wb') as token:
+                    pickle.dump(creds, token)
                     
             return creds
             
@@ -80,7 +85,7 @@ class CalendarAPI:
                 'timeMin': time_min.isoformat() + 'Z',
                 'timeMax': time_max.isoformat() + 'Z',
                 'maxResults': max_results,
-                'singleEvents': True,
+                'singleEvents': 'true',
                 'orderBy': 'startTime'
             }
             

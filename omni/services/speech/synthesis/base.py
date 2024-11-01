@@ -1,46 +1,32 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Union
-import asyncio
-import logging
-from ....core.exceptions import TTSError, ResourceInitializationError
+from typing import Optional, Dict, Any
+from ....core.exceptions import ResourceInitializationError
 
 class BaseSynthesizer(ABC):
-    """Abstract base class for asynchronous speech synthesis."""
-    
-    def __init__(self):
-        self._logger = logging.getLogger(self.__class__.__name__)
+    """Base class for speech synthesizers."""
     
     @abstractmethod
-    async def initialize(self, config: Optional[Dict[str, Union[str, int, float]]] = None) -> None:
-        """Initialize the synthesizer with optional configuration."""
-        pass
+    async def initialize(self) -> None:
+        """Initialize synthesizer.
+        
+        Raises:
+            ResourceInitializationError: If initialization fails
+        """
+        raise NotImplementedError
         
     @abstractmethod
-    async def speak(self, text: str, timeout: Optional[float] = None) -> None:
-        """Synthesize and speak text with optional timeout."""
-        pass
+    async def synthesize(self, text: str) -> bytes:
+        """Synthesize speech from text.
         
-    @abstractmethod
-    async def is_speaking(self) -> bool:
-        """Check if the synthesizer is currently speaking."""
-        pass
-        
-    @abstractmethod
-    async def stop_speaking(self) -> None:
-        """Stop current speech synthesis."""
-        pass
-        
-    @abstractmethod
-    async def is_ready(self) -> bool:
-        """Check if synthesizer is initialized and ready."""
-        pass
-        
-    async def handle_error(self, error: Exception, logger: Optional[logging.Logger] = None) -> None:
-        """Handle errors with default logging."""
-        log = logger or self._logger
-        log.error(f"Synthesis error: {str(error)}", exc_info=True)
+        Args:
+            text: Text to synthesize
+            
+        Returns:
+            bytes: Audio data
+        """
+        raise NotImplementedError
         
     @abstractmethod
     async def cleanup(self) -> None:
-        """Cleanup resources used by the synthesizer."""
-        pass
+        """Clean up resources."""
+        raise NotImplementedError
