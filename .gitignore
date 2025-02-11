@@ -1,0 +1,35 @@
+# Ignore token and secret files
+token.pickle
+client_secret_*
+htmlcov/
+
+# Ignore virtual environments
+venv/
+test_venv/
+
+# Ignore Vosk model directory (assuming it's large or downloaded)
+vosk-model-small-en-us-0.15/
+Hey-Omni_en_mac_v3_0_0/
+
+# Ignore compiled Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore logs and coverage reports
+*.log
+htmlcov/
+
+# Ignore IDE and editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore system files
+.DS_Store
+Thumbs.db
+
+# Ignore Python environment version file
+.python-version
